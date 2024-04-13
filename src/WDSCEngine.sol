@@ -74,8 +74,18 @@ contract WDSCEngine is ReentrancyGuard {
     //////////////////////////////
     ///   External  Functions ///
     ////////////////////////////
+
+    function depositCollateralAndMintWdsc(
+        address tokenCollateralAddress,
+        uint256 amountCollateral,
+        uint256 amountWdscToMint
+    ) external {
+        depositCollateral(tokenCollateralAddress, amountCollateral);
+        mintWdsc(amountWdscToMint);
+    }
+
     function depositCollateral(address tokenCollateralAddress, uint256 amountCollateral)
-        external
+        public
         moreThanZero(amountCollateral)
         isAlloweToken(tokenCollateralAddress)
         nonReentrant
@@ -86,7 +96,7 @@ contract WDSCEngine is ReentrancyGuard {
         if (!success) revert WDSCEngine__TransferFailed();
     }
 
-    function mintWdsc(uint256 amountWdscToMint) external moreThanZero(amountWdscToMint) nonReentrant {
+    function mintWdsc(uint256 amountWdscToMint) public moreThanZero(amountWdscToMint) nonReentrant {
         s_WdscMinted[msg.sender] += amountWdscToMint;
         _revertIfHealthFactorIsBroken(msg.sender);
         bool success = s_wdsc.mint(msg.sender, amountWdscToMint);

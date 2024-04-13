@@ -7,6 +7,7 @@ import {WDSCEngine} from "../../src/WDSCEngine.sol";
 import {WorldDecentralizedStableCoin} from "../../src/WorldDecentralisedStableCoin.sol";
 import {DeployWDSC} from "../../script/DeployWDSC.s.sol";
 import {HelperConfig} from "../../script/HelperConfig.s.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 contract WDSCEngineTest is Test {
     DeployWDSC deployer;
@@ -14,12 +15,18 @@ contract WDSCEngineTest is Test {
     WDSCEngine engine;
     HelperConfig config;
     address weth;
+    address wbtc;
     address ethUsdPriceFeed;
+    address public USER = makeAddr("USER");
+    uint256 public constant AMOUNT_COLLATERAL = 10 ether;
+    uint256 public constant STARTING_USER_BALANCE = 10 ether;
 
     function setUp() public {
         deployer = new DeployWDSC();
         (wdsc, engine, config) = deployer.run();
-        (ethUsdPriceFeed,, weth,,) = config.activeNetworkConfig();
+        (ethUsdPriceFeed,, weth, wbtc,) = config.activeNetworkConfig();
+        ERC20Mock(weth).mint(USER, STARTING_USER_BALANCE);
+        ERC20Mock(wbtc).mint(USER, STARTING_USER_BALANCE);
     }
 
     function testGetUsdValue() public {
@@ -30,7 +37,16 @@ contract WDSCEngineTest is Test {
         assert(ethUsdValue == expectedUsd);
     }
 
+    ///////////////////////////////////
+    /////// Deposit Collateral ///////
+    ///////////////////////////////////
+
     function testDepositCollateral() public {
-        vm.prank;
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(engine), AMOUNT_COLLATERAL);
+
+        vm.expectRevert(WDSCEngine.WDSCEngine__NeedsMorethanZero.selector);
+        engine.depositCollateral(weth, 0);
+        vm.stopPrank();
     }
 }
