@@ -16,6 +16,7 @@ contract WDSCEngine is ReentrancyGuard {
     error WDSCEngine__TransferFailed();
     error WDSCEngine__BreaksHealthFactor(uint256);
     error WDSCEngine__MintingFailed();
+    error WDSCEngine__HealthFactorOk();
 
     //////////////////////////
     /// State Variables   ///
@@ -24,6 +25,7 @@ contract WDSCEngine is ReentrancyGuard {
     uint256 private constant PRECISION = 1e18;
     uint256 private constant LIQUIDATION_THRESHOLD = 50;
     uint256 private constant LIQUIDATION_PRECISION = 100;
+    uint256 private constant LIQUIDATION_BONUS = 10;
     uint256 private constant MIN_HEALTH_FACTOR = 1;
     mapping(address token => address priceFeed) private s_priceFeeds;
     mapping(address user => mapping(address token => uint256)) private s_collateralDeposited;
@@ -35,6 +37,7 @@ contract WDSCEngine is ReentrancyGuard {
     ////     Events        ///
     /////////////////////////
     event CollateralDeposited(address indexed user, address indexed token, uint256 indexed amount);
+    event CollateralRedeemed(address indexed user, address indexed token, uint256 indexed amount);
     /*
      * @param tokenCollateralAddress - address of the token collateral
      * @param _amountCollateral - amount of token collateral
@@ -71,9 +74,54 @@ contract WDSCEngine is ReentrancyGuard {
         s_wdsc = WorldDecentralizedStableCoin(wdscAddress);
     }
 
-    //////////////////////////////
-    ///   External  Functions ///
-    ////////////////////////////
+    ////////////////////////////////////
+    /// External & public Functions ///
+    //////////////////////////////////
+
+    function reedemCollateralForWdsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountWdscToBurn)
+        external
+    {
+        reedemCollateral(tokenCollateralAddress, amountCollateral);
+        burnWdsc(amountWdscToBurn);
+    }
+
+    /*
+    * @param tokenCollateralAddress - address of the token collateral
+    * @param _amountCollateral - amount of token collateral
+    * redeemCollateral - redeems token collateral to wdsc 
+    */
+    function reedemCollateral(address tokenCollateralAddress, uint256 amountCollateral)
+        public
+        moreThanZero(amountCollateral)
+        nonReentrant
+    {
+        s_collateralDeposited[msg.sender][tokenCollateralAddress] -= amountCollateral;
+        emit CollateralRedeemed(msg.sender, tokenCollateralAddress, amountCollateral);
+        bool success = IERC20(tokenCollateralAddress).transfer(msg.sender, amountCollateral);
+        if (!success) revert WDSCEngine__TransferFailed();
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
+
+    function burnWdsc(uint256 amountWdscToBurn) public moreThanZero(amountWdscToBurn) nonReentrant {
+        s_WdscMinted[msg.sender] -= amountWdscToBurn;
+        bool success = s_wdsc.transferFrom(msg.sender, address(this), amountWdscToBurn);
+        if (!success) revert WDSCEngine__MintingFailed();
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
+
+    function liquidate(address tokenCollateralAddress, address user, uint256 debtToCover)
+        external
+        moreThanZero(debtToCover)
+        nonReentrant
+    {
+        uint256 userHealthFactor = _healthFactor(user);
+        if (userHealthFactor >= MIN_HEALTH_FACTOR) {
+            revert WDSCEngine__HealthFactorOk();
+        }
+        uint256 tokenAmountFromDebtCovered = getTokenAmountFromUsd(tokenCollateralAddress, debtToCover);
+        uint256 bonusCollateral = (tokenAmountFromDebtCovered * LIQUIDATION_BONUS) / LIQUIDATION_PRECISION;
+        uint256 tokenAmountToRedeem = tokenAmountFromDebtCovered + bonusCollateral;
+    }
 
     function depositCollateralAndMintWdsc(
         address tokenCollateralAddress,
@@ -133,6 +181,12 @@ contract WDSCEngine is ReentrancyGuard {
     //////////////////////////////////////////
     ///   public & external view  Functions ///
     //////////////////////////////////////////
+
+    function getTokenAmountFromUsd(address token, uint256 amountUsd) public view returns (uint256) {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
+        (, int256 price,,,) = priceFeed.latestRoundData();
+        return ((uint256(amountUsd) * PRECISION) / (uint256(price) * FEED_PRECISON));
+    }
 
     function getAccountCollateralValue(address user) public view returns (uint256 tokenCollateralValueInUsd) {
         for (uint256 i = 0; i < s_Colateraltokens.length; i++) {
