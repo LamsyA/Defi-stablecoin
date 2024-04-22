@@ -17,6 +17,7 @@ contract WDSCEngine is ReentrancyGuard {
     error WDSCEngine__BreaksHealthFactor(uint256);
     error WDSCEngine__MintingFailed();
     error WDSCEngine__HealthFactorOk();
+    error WDSCEngine__HealthFactorNotImporved();
 
     //////////////////////////
     /// State Variables   ///
@@ -37,7 +38,7 @@ contract WDSCEngine is ReentrancyGuard {
     ////     Events        ///
     /////////////////////////
     event CollateralDeposited(address indexed user, address indexed token, uint256 indexed amount);
-    event CollateralRedeemed(address indexed user, address indexed token, uint256 indexed amount);
+    event CollateralRedeemed(address indexed userFrom, address indexed to, address indexed token, uint256 amount);
     /*
      * @param tokenCollateralAddress - address of the token collateral
      * @param _amountCollateral - amount of token collateral
@@ -95,17 +96,12 @@ contract WDSCEngine is ReentrancyGuard {
         moreThanZero(amountCollateral)
         nonReentrant
     {
-        s_collateralDeposited[msg.sender][tokenCollateralAddress] -= amountCollateral;
-        emit CollateralRedeemed(msg.sender, tokenCollateralAddress, amountCollateral);
-        bool success = IERC20(tokenCollateralAddress).transfer(msg.sender, amountCollateral);
-        if (!success) revert WDSCEngine__TransferFailed();
+        _redeemCollateral(msg.sender, msg.sender, tokenCollateralAddress, amountCollateral);
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
     function burnWdsc(uint256 amountWdscToBurn) public moreThanZero(amountWdscToBurn) nonReentrant {
-        s_WdscMinted[msg.sender] -= amountWdscToBurn;
-        bool success = s_wdsc.transferFrom(msg.sender, address(this), amountWdscToBurn);
-        if (!success) revert WDSCEngine__MintingFailed();
+        _burnDSC(amountWdscToBurn, msg.sender, msg.sender);
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
@@ -121,6 +117,13 @@ contract WDSCEngine is ReentrancyGuard {
         uint256 tokenAmountFromDebtCovered = getTokenAmountFromUsd(tokenCollateralAddress, debtToCover);
         uint256 bonusCollateral = (tokenAmountFromDebtCovered * LIQUIDATION_BONUS) / LIQUIDATION_PRECISION;
         uint256 tokenAmountToRedeem = tokenAmountFromDebtCovered + bonusCollateral;
+        _redeemCollateral(user, msg.sender, tokenCollateralAddress, tokenAmountToRedeem);
+        _burnDSC(debtToCover, user, msg.sender);
+        _revertIfHealthFactorIsBroken(msg.sender);
+        uint256 endingHealthFactor = _healthFactor(user);
+        if (endingHealthFactor <= MIN_HEALTH_FACTOR) {
+            revert WDSCEngine__HealthFactorNotImporved();
+        }
     }
 
     function depositCollateralAndMintWdsc(
@@ -154,6 +157,24 @@ contract WDSCEngine is ReentrancyGuard {
     ///////////////////////////////////////
     ///   Internal & Private  Functions ///
     //////////////////////////////////////
+
+    function _burnDSC(uint256 amountWdscToBurn, address onBehalfOf, address dscfrom) private {
+        s_WdscMinted[onBehalfOf] -= amountWdscToBurn;
+        bool success = s_wdsc.transferFrom(dscfrom, address(this), amountWdscToBurn);
+        if (!success) {
+            revert WDSCEngine__MintingFailed();
+        }
+    }
+
+    function _redeemCollateral(address from, address to, address tokenCollateralAddress, uint256 amountCollateral)
+        private
+    {
+        s_collateralDeposited[from][tokenCollateralAddress] -= amountCollateral;
+        emit CollateralRedeemed(from, to, tokenCollateralAddress, amountCollateral);
+        bool success = IERC20(tokenCollateralAddress).transfer(to, amountCollateral);
+        if (!success) revert WDSCEngine__TransferFailed();
+        _revertIfHealthFactorIsBroken(from);
+    }
 
     function _getAccountInformation(address user)
         private

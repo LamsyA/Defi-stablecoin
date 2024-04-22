@@ -17,16 +17,28 @@ contract WDSCEngineTest is Test {
     address weth;
     address wbtc;
     address ethUsdPriceFeed;
+    address btcUsdPriceFeed;
     address public USER = makeAddr("USER");
     uint256 public constant AMOUNT_COLLATERAL = 10 ether;
     uint256 public constant STARTING_USER_BALANCE = 10 ether;
+    address[] public tokenAddress;
+    address[] public priceFeedAddress;
 
     function setUp() public {
         deployer = new DeployWDSC();
         (wdsc, engine, config) = deployer.run();
-        (ethUsdPriceFeed,, weth, wbtc,) = config.activeNetworkConfig();
+        (ethUsdPriceFeed, btcUsdPriceFeed, weth, wbtc,) = config.activeNetworkConfig();
         ERC20Mock(weth).mint(USER, STARTING_USER_BALANCE);
         ERC20Mock(wbtc).mint(USER, STARTING_USER_BALANCE);
+    }
+
+    function testRevertIfTokenAddressLengthDoessNotMatchPriceFeeds() public {
+        tokenAddress.push(weth);
+        priceFeedAddress.push(btcUsdPriceFeed);
+        priceFeedAddress.push(ethUsdPriceFeed);
+        vm.expectRevert(WDSCEngine.WDSCEngine__TokenAddressesAndPricesFeedAddressMustBeEqualLength.selector);
+
+        new WDSCEngine(tokenAddress, priceFeedAddress, address(wdsc));
     }
 
     function testGetUsdValue() public {
