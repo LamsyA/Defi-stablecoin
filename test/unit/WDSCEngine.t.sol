@@ -49,6 +49,12 @@ contract WDSCEngineTest is Test {
         assert(ethUsdValue == expectedUsd);
     }
 
+    function testGetTokenAmountFromUsd() public {
+        uint256 usdAmount = 100 ether;
+        uint256 expectedWeth = 0.05 ether;
+        uint256 actualWeth = engine.getTokenAmountFromUsd(weth, usdAmount);
+        assert(actualWeth == expectedWeth);
+    }
     ///////////////////////////////////
     /////// Deposit Collateral ///////
     ///////////////////////////////////
@@ -60,5 +66,85 @@ contract WDSCEngineTest is Test {
         vm.expectRevert(WDSCEngine.WDSCEngine__NeedsMorethanZero.selector);
         engine.depositCollateral(weth, 0);
         vm.stopPrank();
+    }
+
+    function testRevertWithUnApprovedCollateral() public {
+        ERC20Mock testToken = new ERC20Mock();
+        vm.startPrank(USER);
+        vm.expectRevert(WDSCEngine.WDSCEngine__TokenNotAllowed.selector);
+        engine.depositCollateral(address(testToken), AMOUNT_COLLATERAL);
+        vm.stopPrank();
+    }
+
+    modifier depositCollateral() {
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(engine), AMOUNT_COLLATERAL);
+        engine.depositCollateral(weth, AMOUNT_COLLATERAL);
+        vm.stopPrank();
+        _;
+    }
+
+    function testCanDepositAndGetAccountInfo() public depositCollateral {
+        (uint256 totalWdscMinted, uint256 collateralValueInUsd) = engine.getAccountInformation(USER);
+        uint256 expectedTotalWdscMinted = 0;
+        uint256 expectedDepositAmount = engine.getTokenAmountFromUsd(weth, collateralValueInUsd);
+        console.log("expectedDepositAmount: ", expectedDepositAmount);
+        console.log("collateralValueInUsd: ", collateralValueInUsd);
+        assert(totalWdscMinted == expectedTotalWdscMinted);
+        assert(AMOUNT_COLLATERAL == expectedDepositAmount);
+    }
+
+    function testMint() public depositCollateral {
+        vm.startPrank(USER);
+        engine.mintWdsc(100);
+        vm.stopPrank();
+        (uint256 totalWdscMinted, uint256 collateralValueInUsd) = engine.getAccountInformation(USER);
+        uint256 expectedTotalWdscMinted = 100;
+        uint256 expectedDepositAmount = engine.getTokenAmountFromUsd(weth, collateralValueInUsd);
+        console.log("expectedDepositAmount: ", expectedDepositAmount);
+        console.log("collateralValueInUsd: ", collateralValueInUsd);
+        assert(totalWdscMinted == expectedTotalWdscMinted);
+        assert(AMOUNT_COLLATERAL == expectedDepositAmount);
+    }
+
+    function testDepositCollateralAndMintWdsc() public {
+        vm.startPrank(USER);
+        uint256 amountWdscToMint = 1000000;
+        ERC20Mock(weth).approve(address(engine), AMOUNT_COLLATERAL);
+        engine.depositCollateralAndMintWdsc(weth, AMOUNT_COLLATERAL, amountWdscToMint);
+        vm.stopPrank();
+        uint256 totalWdscMinted = engine.getMintedWdsc(USER);
+        console.log("totalWdscMinted: ", totalWdscMinted);
+        assert(totalWdscMinted == amountWdscToMint);
+    }
+
+    function testMintBrokenHealthFactor() public {
+        vm.startPrank(USER);
+        uint256 amountWdscToMint = 100e18;
+        uint256 amountOfCollateral = 0.005 ether;
+        ERC20Mock(weth).approve(address(engine), amountOfCollateral);
+        engine.depositCollateralAndMintWdsc(weth, amountOfCollateral, amountWdscToMint);
+        uint256 totalWdscMinted = engine.getMintedWdsc(USER);
+        console.log("totalWdscMinted: ", totalWdscMinted);
+        assert(totalWdscMinted == amountWdscToMint);
+        vm.stopPrank();
+    }
+
+    function testReedemCollateral() public {
+        uint256 amountWdscToMint = 100;
+        uint256 amountOfCollateral = 10000;
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(engine), amountOfCollateral);
+        engine.depositCollateralAndMintWdsc(weth, amountOfCollateral, amountWdscToMint);
+        wdsc.approve(address(engine), amountWdscToMint);
+        vm.expectRevert(WDSCEngine.WDSCEngine__BreaksHealthFactor.selector);
+        engine.reedemCollateralForWdsc(weth, amountOfCollateral, amountWdscToMint);
+        vm.stopPrank();
+        uint256 tokenToBeRedeemed = engine.getRedeemedCollateral(USER, weth);
+        // uint256 redeemtolateral = engine.getRedeemedCollateral(USER, weth);
+        // console.log("redeem colateral: ", redeemtolateral);
+        uint256 bal = ERC20Mock(weth).balanceOf(USER);
+        console.log("redeem colateral: ", bal);
+        console.log("amount of collateral: ", engine.getMintedWdsc(USER));
     }
 }

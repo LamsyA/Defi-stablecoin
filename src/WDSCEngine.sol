@@ -14,7 +14,7 @@ contract WDSCEngine is ReentrancyGuard {
     error WDSCEngine__TokenAddressesAndPricesFeedAddressMustBeEqualLength();
     error WDSCEngine__TokenNotAllowed();
     error WDSCEngine__TransferFailed();
-    error WDSCEngine__BreaksHealthFactor(uint256);
+    error WDSCEngine__BreaksHealthFactor(uint256 healthFactor);
     error WDSCEngine__MintingFailed();
     error WDSCEngine__HealthFactorOk();
     error WDSCEngine__HealthFactorNotImporved();
@@ -222,5 +222,21 @@ contract WDSCEngine is ReentrancyGuard {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
         (, int256 price,,,) = priceFeed.latestRoundData();
         return ((uint256(price) * FEED_PRECISON) * amount) / PRECISION;
+    }
+
+    function getAccountInformation(address user)
+        external
+        view
+        returns (uint256 totalWdscMinted, uint256 collateralValueInUsd)
+    {
+        (totalWdscMinted, collateralValueInUsd) = _getAccountInformation(user);
+    }
+
+    function getMintedWdsc(address user) external view returns (uint256) {
+        return s_WdscMinted[user];
+    }
+
+    function getRedeemedCollateral(address user, address tokenCollateralAddress) external view returns (uint256) {
+        return IERC20(tokenCollateralAddress).balanceOf(user);
     }
 }
